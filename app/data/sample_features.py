@@ -1,13 +1,15 @@
 """Sample dataset used by the Streamlit prototype.
 
-The dataset is intentionally small but contains enough variety to
-exercise the filtering logic that powers the main home screen and
-determines which visualisations are available.
+The dataset now expands to 500 records so the filtering widgets and
+visualisation toggles receive enough diversity when deployed to
+Streamlit Cloud.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from functools import lru_cache
+from itertools import cycle
 from typing import Dict, List
 
 import pandas as pd
@@ -30,7 +32,7 @@ class FeatureRecord:
     visualization_group: str
 
 
-_DATA: List[FeatureRecord] = [
+_BASE_RECORDS: List[FeatureRecord] = [
     FeatureRecord(
         feature_group="Roaming Essentials",
         feature_name="Automatic APN Switch",
@@ -136,6 +138,40 @@ _DATA: List[FeatureRecord] = [
         visualization_group="Full Suite",
     ),
 ]
+
+
+def _build_dataset(total: int = 500) -> List[FeatureRecord]:
+    statuses = ["Available", "Pilot", "In Progress", "Planned"]
+    records: List[FeatureRecord] = []
+    for index, template in enumerate(cycle(_BASE_RECORDS), start=1):
+        if len(records) >= total:
+            break
+
+        batch = (index - 1) // len(_BASE_RECORDS) + 1
+        suffix = f"{batch:02d}"
+        last_updated = (
+            datetime.strptime(template.last_updated, "%Y-%m-%d")
+            + timedelta(days=(index - 1) % 45)
+        ).strftime("%Y-%m-%d")
+
+        record = FeatureRecord(
+            feature_group=template.feature_group,
+            feature_name=f"{template.feature_name} #{suffix}",
+            model=f"{template.model}-{(batch % 5) + 1}",
+            mcc=f"{(int(template.mcc) + index) % 1000:03d}",
+            mnc=f"{(int(template.mnc) + batch) % 1000:03d}",
+            region=template.region,
+            country=template.country,
+            operator=f"{template.operator} {batch}",
+            status=statuses[(batch - 1) % len(statuses)],
+            last_updated=last_updated,
+            visualization_group=template.visualization_group,
+        )
+        records.append(record)
+    return records
+
+
+_DATA: List[FeatureRecord] = _build_dataset(500)
 
 
 @lru_cache(maxsize=1)

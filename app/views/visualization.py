@@ -13,6 +13,7 @@ from app.views.state import FilterState
 def render_visualization(filter_state: FilterState, dataframe):
     st.title("📈 Visualization Workspace")
     st.caption("선택된 FEATURE GROUP에 따라 사용 가능한 시각화 유형이 달라집니다.")
+    st.info("이 영역은 **작업 중(WIP)** 입니다. 차트와 지도 템플릿은 순차적으로 연결됩니다.")
 
     groups = filter_state.active_visualization_groups(dataframe)
     titles = visualization_group_titles()

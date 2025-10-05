@@ -67,6 +67,39 @@ feature-monitoring-web/
 
 > 💡 사내망 정책으로 Streamlit Cloud 사용이 제한될 경우, 사내 Kubernetes/VM에 `streamlit run main.py --server.port <포트>` 형태로 배포하고 리버스 프록시를 연결하는 대안도 고려할 수 있습니다.
 
+### 3. Cloud / On-prem 런타임 전환
+
+- `main.py`는 **Cloud 모드**(기본)와 **On-prem 모드**를 자동 전환합니다.
+- Cloud 모드에서는 `st.cache_data(ttl=86400)`로 하루 1회 공개 스테이징 API를 동기화하고, 실패 시 샘플 데이터(500건)를 사용합니다.
+- On-prem 모드에서는 `DataManager`가 사내 DRF API → Parquet 캐시로 싱크합니다.
+- 런타임 감지/데이터 로딩 로직은 `app/data/runtime_loader.py`에 모듈화되어 있어 브랜치 병합 시 충돌을 줄입니다.
+
+| 설정 키              | Cloud (Streamlit Secrets)                  | On-prem (환경 변수)                   |
+| ------------------ | ----------------------------------------- | ------------------------------------ |
+| `RUNTIME_MODE`     | `cloud` (기본)                             | `onprem`                             |
+| `API_BASE`         | 공개 접근 가능한 스테이징 API URL             | 사내망 API 엔드포인트                   |
+| `VERIFY_SSL`       | `true`                                     | `false` 또는 내부 CA에 맞춰 설정            |
+| `API_ACCESS_TOKEN` | 필요 시 Bearer 토큰                         | 필요 시 서비스 토큰                      |
+| `DATA_DIR`         | -                                         | `/srv/fmw/_cache` 등 캐시 저장 경로         |
+
+#### Secrets 예시 (Streamlit Cloud)
+
+```toml
+RUNTIME_MODE = "cloud"
+API_BASE = "https://staging.example.com"
+VERIFY_SSL = "true"
+API_ACCESS_TOKEN = "<optional>"
+```
+
+#### On-prem 환경 변수 예시
+
+```bash
+export RUNTIME_MODE=onprem
+export API_BASE=https://10.x.x.x
+export DATA_DIR=/srv/fmw/_cache
+export VERIFY_SSL=false
+```
+
 ---
 
 ## 🔐 보안 정책
