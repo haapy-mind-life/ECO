@@ -1,17 +1,13 @@
 """Streamlit entry point implementing the dual cloud/on-prem workflow."""
 from __future__ import annotations
 
-import os
-import time
-from datetime import datetime, timezone
 from typing import List
 
 import pandas as pd
-import requests
 import streamlit as st
 
 from app.core.navigation import get_pages
-from app.data.data_manager import DataManager
+from app.data.runtime_loader import load_runtime_context
 from app.data.sample_features import load_feature_dataframe
 from app.views.state import FilterState
 
@@ -80,70 +76,15 @@ def _render_sidebar(filter_state: FilterState, dataframe: pd.DataFrame) -> str:
     return selected_label
 
 
-@st.cache_data(ttl=86400)
-def _cloud_fetch_feature1(api_base: str, verify_ssl: bool, token: str | None) -> tuple[pd.DataFrame, int]:
-    """Fetch feature data from the public staging API (cloud mode)."""
-
-    url = f"{api_base.rstrip('/')}/api/feature1/"
-    headers: dict[str, str] = {}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    response = requests.get(url, timeout=20, verify=verify_ssl, headers=headers)
-    response.raise_for_status()
-    payload = response.json()
-    if isinstance(payload, dict) and "results" in payload:
-        payload = payload["results"]
-    dataframe = pd.DataFrame(payload)
-    return dataframe, int(time.time())
-
-
-def _bool(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.lower() in {"1", "true", "yes", "on"}
-
-
 def main():
     st.set_page_config(page_title="Feature Monitoring Portal", layout="wide")
 
     filter_state = _init_session_state()
+    context = load_runtime_context()
 
-    runtime_mode = st.secrets.get("RUNTIME_MODE", os.getenv("RUNTIME_MODE", "cloud")).lower()
-    api_base = st.secrets.get("API_BASE", os.getenv("API_BASE", "https://10.x.x.x"))
-    verify_ssl = _bool(str(st.secrets.get("VERIFY_SSL", os.getenv("VERIFY_SSL", "false"))))
-    token = st.secrets.get("API_ACCESS_TOKEN", os.getenv("API_ACCESS_TOKEN"))
-    data_dir = os.getenv("DATA_DIR", "./_cache")
-
-    if runtime_mode == "cloud":
-        try:
-            dataframe, last_epoch = _cloud_fetch_feature1(api_base, verify_ssl, token)
-            st.session_state["data_manager"] = None
-            if dataframe.empty:
-                dataframe = load_feature_dataframe()
-                st.session_state["last_sync_txt"] = "샘플 데이터(Cloud API 미접속)"
-            else:
-                last_sync = datetime.fromtimestamp(last_epoch, tz=timezone.utc)
-                st.session_state["last_sync_txt"] = DataManager.format_last_sync(last_sync)
-        except Exception:
-            dataframe = load_feature_dataframe()
-            st.session_state["data_manager"] = None
-            st.session_state["last_sync_txt"] = "샘플 데이터(Cloud API 미접속)"
-    else:
-        data_manager = DataManager(
-            api_base=api_base,
-            data_dir=data_dir,
-            verify_ssl=verify_ssl,
-            token=token,
-        )
-        st.session_state["data_manager"] = data_manager
-        data_manager.refresh_if_stale("feature1", max_age_hours=24)
-        dataframe = data_manager.load("feature1")
-        if dataframe.empty:
-            dataframe = load_feature_dataframe()
-        st.session_state["last_sync_txt"] = DataManager.format_last_sync(
-            data_manager.last_sync_at("feature1")
-        )
-
+    dataframe = context.dataframe
+    st.session_state["data_manager"] = context.data_manager
+    st.session_state["last_sync_txt"] = context.last_sync_text
     st.session_state["active_dataframe"] = dataframe
 
     selected_label = _render_sidebar(filter_state, dataframe)

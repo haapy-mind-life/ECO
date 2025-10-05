@@ -72,6 +72,7 @@ feature-monitoring-web/
 - `main.py`는 **Cloud 모드**(기본)와 **On-prem 모드**를 자동 전환합니다.
 - Cloud 모드에서는 `st.cache_data(ttl=86400)`로 하루 1회 공개 스테이징 API를 동기화하고, 실패 시 샘플 데이터(500건)를 사용합니다.
 - On-prem 모드에서는 `DataManager`가 사내 DRF API → Parquet 캐시로 싱크합니다.
+- 런타임 감지/데이터 로딩 로직은 `app/data/runtime_loader.py`에 모듈화되어 있어 브랜치 병합 시 충돌을 줄입니다.
 
 | 설정 키              | Cloud (Streamlit Secrets)                  | On-prem (환경 변수)                   |
 | ------------------ | ----------------------------------------- | ------------------------------------ |
