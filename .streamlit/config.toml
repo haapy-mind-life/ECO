@@ -1,5 +1,7 @@
 [server]
 port = 8501
-baseUrlPath = "/fmw"
+# 기본 경로를 루트(/)로 고정해 Streamlit Cloud 헬스 체크가 404를 반환하지 않도록 수정합니다.
+# (기존 /fmw 경로는 더 이상 필요하지 않으며, 멀티 페이지 앱을 통해 직접 라우팅합니다.)
+baseUrlPath = ""
 enableXsrfProtection = true
 enableCORS = false
