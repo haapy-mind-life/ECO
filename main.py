@@ -32,20 +32,25 @@ def _cloud_fetch_feature1(api_base: str, verify_ssl: bool, token: str | None) ->
     return df, last
 
 def _read_qs_list(name: str) -> List[str]:
-    qs = st.experimental_get_query_params()
-    vals = qs.get(name, [])
-    if not vals:
+    val = st.query_params.get(name, "")
+    if not val:
         return []
     merged = []
-    for v in vals:
-        merged.extend([x.strip() for x in v.split(",") if x.strip()])
+    for x in val.split(","):
+        if x.strip():
+            merged.append(x.strip())
     return merged
 
 def _sync_qs_from_state(state: FilterState) -> None:
-    st.experimental_set_query_params(
-        models=state.models or None,
-        feature_groups=state.feature_groups or None,
-    )
+    if state.models:
+        st.query_params["models"] = ",".join(state.models)
+    elif "models" in st.query_params:
+        del st.query_params["models"]
+    
+    if state.feature_groups:
+        st.query_params["feature_groups"] = ",".join(state.feature_groups)
+    elif "feature_groups" in st.query_params:
+        del st.query_params["feature_groups"]
 
 # ---------------- 메인 앱 ---------------- #
 
