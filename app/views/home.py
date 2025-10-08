@@ -1,119 +1,127 @@
-"""Home view that focuses on feature discovery and filtering."""
 from __future__ import annotations
-
-from typing import Optional
-
+import pandas as pd
 import streamlit as st
-
 from app.data.data_manager import DataManager
-from app.data.sample_features import distinct_values
+from app.data.sample_features import distinct_values, FEATURE_GROUP_SCHEMA
 from app.views.state import FilterState
+import re
 
+def _mccmnc_ok(s: str) -> bool:
+    return bool(re.fullmatch(r"\d{3}-\d{2}", s.strip()))
 
 def _multiselect(label: str, options, default, key: str):
-    return st.multiselect(
-        label,
-        options,
-        default=default,
-        key=key,
-        placeholder="검색하거나 값을 입력하세요",
-    )
+    return st.multiselect(label, options, default=default, key=key, placeholder="검색하거나 값을 입력하세요")
 
 
-def _column_options(dataframe, column: str):
-    if column in dataframe.columns:
-        values = dataframe[column].dropna().astype(str).unique().tolist()
-        values.sort()
-        return values
-    return distinct_values(column)
-
-
-def render_home(filter_state: FilterState, dataframe):
-    """Render the main landing page with detailed filters."""
-
+def render_home(filter_state: FilterState, dataframe: pd.DataFrame):
     st.title("📊 Feature Monitoring Home")
 
-    data_manager: Optional[DataManager] = st.session_state.get("data_manager")
-    if data_manager:
-        last_sync = data_manager.last_sync_at("feature1")
-        last_sync_text = data_manager.format_last_sync(last_sync)
+    # 마지막 DB 싱크 시각
+    last_sync_txt = "-"
+    dm: DataManager | None = st.session_state.get("data_manager")
+    if dm:
+        last = dm.last_sync_at("feature1")
+        last_sync_txt = dm.format_last_sync(last)
     else:
-        last_sync_text = st.session_state.get("last_sync_txt", "샘플 데이터")
+        last_sync_txt = st.session_state.get("last_sync_txt", "-")
+    st.caption(f"마지막 DB 싱크: **{last_sync_txt}** · 싱크 주기: **매일 1회** · 조회 전용")
 
-    st.caption(
-        f"마지막 DB 싱크: **{last_sync_text}** · 싱크 주기: **매일 1회** · 이 화면은 **조회 전용**입니다."
-    )
-
-    st.markdown(
-        """
-        - 좌측 사이드바에서 **모델**과 **FEATURE GROUP**을 선택하면 전체 필터가 좁혀집니다.
-        - 아래 상세 필터에서 MCC, MNC, 국가/사업자 등을 추가로 지정해 원하는 레코드를 찾을 수 있습니다.
-        - 선택한 레코드는 테이블 형태로 표시되어 바로 운영자가 검토할 수 있습니다.
-        """
-    )
+    # 그룹 인지형: 선택된 그룹에 따라 사용 차원 제어
+    # 단일 그룹 선택 시 해당 스키마, 복수 선택이면 모든 차원 노출(보수적)
+    dims = {"region","country","operator","mcc_mnc"}
+    if filter_state.feature_groups and len(filter_state.feature_groups) == 1:
+        g = filter_state.feature_groups[0]
+        dims = set(FEATURE_GROUP_SCHEMA.get(g, {}).get("dims", list(dims)))
 
     st.subheader("상세 필터")
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        filter_state.mcc = _multiselect(
-            "MCC",
-            _column_options(dataframe, "mcc"),
-            filter_state.mcc,
-            "home_mcc",
-        )
-        filter_state.mnc = _multiselect(
-            "MNC",
-            _column_options(dataframe, "mnc"),
-            filter_state.mnc,
-            "home_mnc",
-        )
+        if "mcc_mnc" in dims:
+            # MCC/MNC는 원본 컬럼이 mcc,mnc로 올 수 있으므로 입력은 NNN-NN
+            mccmnc = st.text_input("MCC-MNC(정확히: NNN-NN)", key="home_mccmnc", placeholder="예: 450-05")
+            if mccmnc and not _mccmnc_ok(mccmnc):
+                st.error("MCC-MNC 형식은 NNN-NN (예: 450-05)")
+                st.stop()
+            # 필터에 반영: mcc, mnc 분해
+            if mccmnc:
+                try:
+                    mcc, mnc = mccmnc.split("-")
+                    filter_state.mcc = [mcc]
+                    filter_state.mnc = [mnc]
+                except Exception:
+                    pass
+        else:
+            filter_state.mcc, filter_state.mnc = [], []
 
     with col2:
-        filter_state.regions = _multiselect(
-            "지역",
-            _column_options(dataframe, "region"),
-            filter_state.regions,
-            "home_region",
-        )
-        filter_state.countries = _multiselect(
-            "국가",
-            _column_options(dataframe, "country"),
-            filter_state.countries,
-            "home_country",
-        )
+        if "region" in dims:
+            filter_state.regions = _multiselect("지역", distinct_values("region"), filter_state.regions, "home_region")
+        else:
+            filter_state.regions = []
+        if "country" in dims:
+            filter_state.countries = _multiselect("국가", distinct_values("country"), filter_state.countries, "home_country")
+        else:
+            filter_state.countries = []
 
     with col3:
-        filter_state.operators = _multiselect(
-            "사업자",
-            _column_options(dataframe, "operator"),
-            filter_state.operators,
-            "home_operator",
-        )
-        filter_state.features = _multiselect(
-            "FEATURE",
-            _column_options(dataframe, "feature_name"),
-            filter_state.features,
-            "home_feature",
-        )
+        if "operator" in dims:
+            filter_state.operators = _multiselect("사업자", distinct_values("operator"), filter_state.operators, "home_operator")
+        else:
+            filter_state.operators = []
+        filter_state.features = _multiselect("FEATURE", distinct_values("feature_name"), filter_state.features, "home_feature")
 
-    filtered_df = filter_state.apply(dataframe)
+    filtered_df = filter_state.apply(dataframe).copy()
 
+    # KPI
     st.divider()
-    st.subheader("선택한 FEATURE GROUP 레코드")
+    k1,k2,k3,k4 = st.columns(4)
+    with k1: st.metric("행 수", len(filtered_df))
+    with k2: st.metric("모델 수", int(filtered_df["model"].nunique()) if not filtered_df.empty and "model" in filtered_df else 0)
+    with k3: st.metric("FEATURE 수", int(filtered_df["feature_name"].nunique()) if not filtered_df.empty and "feature_name" in filtered_df else 0)
+    with k4: st.metric("사업자 수", int(filtered_df["operator"].nunique()) if not filtered_df.empty and "operator" in filtered_df else 0)
 
-    st.write(
-        f"총 **{len(filtered_df)}**건이 선택되었습니다. 필요한 데이터를 바로 다운로드할 수 있도록 준비 중입니다."
-    )
+    # 빈 결과 가이드
+    if filtered_df.empty:
+        st.warning("조건에 맞는 결과가 없습니다.")
+        with st.expander("추천 검색 보기"):
+            st.write("• 인기 FEATURE:", ", ".join(distinct_values("feature_name")[:5]))
+            st.write("• 인기 사업자:", ", ".join(distinct_values("operator")[:5]))
+            st.write("• 인기 MCC:", ", ".join(distinct_values("mcc")[:5]))
+        return filter_state
 
-    st.dataframe(
-        filtered_df,
-        hide_index=True,
-        use_container_width=True,
-    )
+    # 표 가독성: status 배지화
+    if "status" in filtered_df.columns:
+        def _badge(x: str) -> str:
+            x = (x or "").lower()
+            if "avail" in x: return "🟢 Available"
+            if "pilot" in x: return "🟡 Pilot"
+            if "plan" in x or "progress" in x: return "🔵 Planned"
+            return x or "-"
+        filtered_df["status"] = filtered_df["status"].map(_badge)
 
-    st.info(
-        "해당 화면은 한 명의 담당자가 운영하도록 설계되었습니다. 홈 화면에서 바로 필터를 적용한 후 데이터를 검토하고 관리할 수 있습니다."
-    )
+    # 표시 컬럼 우선순위
+    preferred = ["feature_group","feature_name","model","region","country","operator","mcc","mnc","status","last_updated"]
+    cols = [c for c in preferred if c in filtered_df.columns] + [c for c in filtered_df.columns if c not in preferred]
+
+    st.subheader("검색 결과")
+    st.dataframe(filtered_df[cols], hide_index=True, use_container_width=True)
+
+    # CSV 다운로드 가드(2만 행)
+    st.divider()
+    st.subheader("⬇️ CSV 다운로드")
+    row_limit = 20000
+    if len(filtered_df) > row_limit:
+        st.error(f"보안 정책에 따라 최대 {row_limit:,}행까지 다운로드할 수 있습니다. 현재: {len(filtered_df):,}행")
+    else:
+        agree = st.checkbox("사내 데이터 보안 정책에 동의합니다.")
+        st.caption("※ 외부 반출 금지, 내부 업무 목적에 한함")
+        if agree:
+            st.download_button(
+                "CSV 저장",
+                data=filtered_df[cols].to_csv(index=False).encode("utf-8-sig"),
+                file_name="feature_records.csv",
+                mime="text/csv",
+            )
 
     return filter_state
