@@ -1,134 +1,101 @@
-"""Utilities for synchronising feature datasets with remote APIs.
-
-This module keeps a lightweight abstraction for environments where the
-application runs inside the company network (on-prem) and can reach the
-protected Django REST API.  The implementation stores snapshots on disk in
-Parquet format so repeated reads remain fast for the Streamlit app.
-"""
 from __future__ import annotations
-
-import json
-from dataclasses import dataclass
+import os, json, time, pathlib, threading
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any, Dict, Optional
-
+from typing import Optional, Dict
 import pandas as pd
 import requests
 
-_KST = timezone(timedelta(hours=9))
+KST = timezone(timedelta(hours=9))
 
-
-@dataclass(slots=True)
 class DataManager:
-    """Fetches feature datasets and caches them locally in Parquet files."""
+    """DRF에서 하루 1회 동기화→로컬 캐시(Parquet)를 제공하고, 앱은 캐시만 조회."""
+    def __init__(self, api_base: str, data_dir: str = "./_cache", verify_ssl: bool = False, timeout: int = 20):
+        self.api_base = api_base.rstrip("/")
+        self.data_dir = pathlib.Path(data_dir)
+        self.verify_ssl = verify_ssl
+        self.timeout = timeout
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.meta_path = self.data_dir / "_meta.json"
+        self.lock = threading.Lock()
+        self._meta = self._load_meta()
 
-    api_base: str
-    data_dir: str
-    verify_ssl: bool = True
-    token: str | None = None
-    timeout: int = 20
+    def _load_meta(self) -> Dict:
+        if self.meta_path.exists():
+            try:
+                return json.loads(self.meta_path.read_text(encoding="utf-8"))
+            except Exception:
+                return {}
+        return {}
 
-    def __post_init__(self) -> None:
-        self._base = self.api_base.rstrip("/")
-        self._dir = Path(self.data_dir)
-        self._dir.mkdir(parents=True, exist_ok=True)
+    def _save_meta(self):
+        tmp = json.dumps(self._meta, ensure_ascii=False, indent=2)
+        self.meta_path.write_text(tmp, encoding="utf-8")
 
-    # ------------------------------------------------------------------
-    # Public API
-    def refresh_if_stale(self, key: str, *, max_age_hours: int = 24) -> bool:
-        """Synchronise ``key`` if the cached dataset is older than ``max_age_hours``.
+    def _dataset_paths(self, name: str):
+        return (self.data_dir / f"{name}.parquet",)
 
-        Returns ``True`` when a refresh was attempted successfully.
-        """
+    def last_sync_at(self, name: str) -> Optional[datetime]:
+        ts = self._meta.get(name, {}).get("last_sync_epoch")
+        if not ts: return None
+        return datetime.fromtimestamp(int(ts), tz=KST)
 
-        last = self.last_sync_at(key)
-        if last is not None:
-            age = datetime.now(timezone.utc) - last
-            if age < timedelta(hours=max_age_hours):
-                return False
-        try:
-            self._sync(key)
-            return True
-        except requests.RequestException:
-            # Network failures should not crash the Streamlit app; the caller can
-            # fall back to the previously cached dataset or sample data.
-            return False
+    def _set_sync_meta(self, name: str, etag: Optional[str] = None):
+        entry = self._meta.get(name, {})
+        entry["last_sync_epoch"] = int(time.time())
+        if etag: entry["etag"] = etag
+        self._meta[name] = entry
+        self._save_meta()
 
-    def load(self, key: str) -> pd.DataFrame:
-        """Return the cached dataset for ``key`` or an empty frame."""
+    # -------- DRF 호출/저장 -------- #
+    def _drf_get(self, path: str, params: Optional[dict] = None, etag: Optional[str] = None):
+        url = f"{self.api_base}/{path.lstrip('/')}"
+        headers = {}
+        if etag:
+            headers["If-None-Match"] = etag
+        r = requests.get(url, params=params or {}, headers=headers, timeout=self.timeout, verify=self.verify_ssl)
+        if r.status_code == 304:
+            return None, etag
+        r.raise_for_status()
+        return r.json(), r.headers.get("ETag")
 
-        path = self._dataset_path(key)
+    def _save_parquet(self, name: str, data):
+        df = pd.DataFrame(data["results"] if isinstance(data, dict) and "results" in data else data)
+        path, = self._dataset_paths(name)
+        df.to_parquet(path, index=False)
+        return df
+
+    def sync_feature(self, name="feature1", path="/api/feature1/", params=None) -> pd.DataFrame:
+        with self.lock:
+            meta = self._meta.get(name, {})
+            etag = meta.get("etag")
+            res, new_etag = self._drf_get(path, params=params, etag=etag)
+            if res is None:
+                return self.load(name, stale_ok=True)
+            df = self._save_parquet(name, res)
+            self._set_sync_meta(name, etag=new_etag or etag)
+            return df
+
+    # -------- 로컬 로드/갱신 -------- #
+    def load(self, name: str, stale_ok=True) -> pd.DataFrame:
+        path, = self._dataset_paths(name)
         if not path.exists():
-            return pd.DataFrame()
+            try:
+                return self.sync_feature(name=name)
+            except Exception:
+                return pd.DataFrame()
         return pd.read_parquet(path)
 
-    def last_sync_at(self, key: str) -> Optional[datetime]:
-        """Return the last successful sync timestamp in UTC."""
-
-        meta_path = self._meta_path(key)
-        if not meta_path.exists():
-            return None
-        try:
-            payload = json.loads(meta_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return None
-        raw = payload.get("last_sync")
-        if not raw:
-            return None
-        try:
-            return datetime.fromisoformat(raw)
-        except ValueError:
-            return None
+    def refresh_if_stale(self, name: str, max_age_hours=24) -> None:
+        last = self.last_sync_at(name)
+        if last and (datetime.now(tz=KST) - last) < timedelta(hours=max_age_hours):
+            return
+        def _bg():
+            try:
+                self.sync_feature(name=name)
+            except Exception:
+                pass
+        threading.Thread(target=_bg, daemon=True).start()
 
     @staticmethod
-    def format_last_sync(value: Optional[datetime]) -> str:
-        """Return a human friendly last-sync message in KST."""
-
-        if value is None:
-            return "미싱크"
-        return value.astimezone(_KST).strftime("%Y-%m-%d %H:%M:%S KST")
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    def _sync(self, key: str) -> None:
-        response = self._fetch_remote(key)
-        dataframe = self._normalise_payload(response)
-        if dataframe.empty:
-            # Persist an empty frame to avoid repeatedly hitting the API when
-            # there is no data yet.
-            dataframe = pd.DataFrame()
-        dataframe.to_parquet(self._dataset_path(key), index=False)
-
-        meta = {"last_sync": datetime.now(timezone.utc).isoformat()}
-        self._meta_path(key).write_text(json.dumps(meta), encoding="utf-8")
-
-    def _fetch_remote(self, key: str) -> Any:
-        url = f"{self._base}/api/{key.strip('/')}/"
-        headers: Dict[str, str] = {}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
-        response = requests.get(
-            url,
-            timeout=self.timeout,
-            verify=self.verify_ssl,
-            headers=headers,
-        )
-        response.raise_for_status()
-        return response.json()
-
-    @staticmethod
-    def _normalise_payload(payload: Any) -> pd.DataFrame:
-        if isinstance(payload, dict) and "results" in payload:
-            payload = payload["results"]
-        if isinstance(payload, list):
-            return pd.DataFrame.from_records(payload)
-        if isinstance(payload, dict):
-            return pd.DataFrame([payload])
-        return pd.DataFrame()
-
-    def _dataset_path(self, key: str) -> Path:
-        return self._dir / f"{key}.parquet"
-
-    def _meta_path(self, key: str) -> Path:
-        return self._dir / f"{key}.meta.json"
+    def format_last_sync(dt: Optional[datetime]) -> str:
+        return dt.strftime("%Y-%m-%d %H:%M:%S KST") if dt else "-"
