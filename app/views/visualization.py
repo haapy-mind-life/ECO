@@ -34,6 +34,14 @@ def render_visualization(filter_state: FilterState, dataframe: pd.DataFrame):
         st.info("선택된 데이터가 없습니다. 홈에서 필터를 확장해 보세요.")
         return filter_state
 
+    required_columns = {"model", "operator", "feature_name"}
+    missing = required_columns - set(base.columns)
+    if missing:
+        readable = ", ".join(sorted(missing))
+        st.warning(f"시각화 미리보기를 표시하려면 다음 컬럼이 필요합니다: {readable}")
+        st.caption("데이터 소스에 해당 컬럼을 추가하거나 필터를 조정해 주세요.")
+        return filter_state
+
     c1, c2 = st.columns(2)
     with c1:
         st.caption("모델별 FEATURE 개수")
@@ -41,7 +49,7 @@ def render_visualization(filter_state: FilterState, dataframe: pd.DataFrame):
         st.bar_chart(g, x="model", y="count", use_container_width=True)
     with c2:
         st.caption("사업자별 FEATURE 개수")
-        g2 = base.groupby("operator")["feature_name"].nunique().reset_index(name="count").sort_values("count", ascending=False)
+        g2 = base.groupby("operator")["feature_name"].nunique().reset_index(name="count", ascending=False)
         g2["operator"] = g2["operator"].fillna("(N/A)")
         st.bar_chart(g2, x="operator", y="count", use_container_width=True)
 
