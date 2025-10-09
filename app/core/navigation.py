@@ -1,13 +1,14 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Callable, Iterable, Sequence
-import pandas as pd
+from typing import Callable, Iterable, Sequence, TYPE_CHECKING
 
 from app.views.home import render_home
 from app.views.state import FilterState
 from app.views.visualization import render_visualization
 
-RenderFn = Callable[[FilterState, pd.DataFrame], FilterState]
+if TYPE_CHECKING:
+    import pandas as pd
+RenderFn = Callable[[FilterState, "pd.DataFrame"], FilterState]
 
 @dataclass(frozen=True)
 class Page:

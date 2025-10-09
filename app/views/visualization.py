@@ -1,10 +1,12 @@
 from __future__ import annotations
-import pandas as pd
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import pandas as pd  # type: ignore
 import streamlit as st
 from app.data.sample_features import visualization_capabilities, visualization_group_titles
 from app.views.state import FilterState
 
-def render_visualization(filter_state: FilterState, dataframe: pd.DataFrame):
+def render_visualization(filter_state: FilterState, dataframe: "pd.DataFrame"):
     st.title("📈 시각화 작업 공간")
     st.info("이 영역은 **작업 중(WIP)** 입니다. 차트/지도 템플릿은 단계적으로 연결됩니다.")
     st.caption("선택한 FEATURE GROUP에 따라 사용 가능한 시각화가 달라집니다.")
