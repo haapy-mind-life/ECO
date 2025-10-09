@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, json, time, pathlib, threading
+import json, time, pathlib, threading
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict
 import pandas as pd
