@@ -12,8 +12,6 @@ class FilterState:
     countries: List[str] = field(default_factory=list)
     operators: List[str] = field(default_factory=list)
     features: List[str] = field(default_factory=list)
-    statuses: List[str] = field(default_factory=list)
-    visualization_groups: List[str] = field(default_factory=list)
 
     def apply(self, dataframe):
         df = dataframe
@@ -26,8 +24,6 @@ class FilterState:
             "country": self.countries,
             "operator": self.operators,
             "feature_name": self.features,
-            "status": self.statuses,
-            "visualization_group": self.visualization_groups,
         }
         for column, selected in selectors.items():
             if selected and column in df.columns:
