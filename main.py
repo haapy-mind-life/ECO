@@ -33,20 +33,36 @@ def _cloud_fetch_feature1(api_base: str, verify_ssl: bool, token: str | None) ->
     return df, last
 
 def _read_qs_list(name: str) -> List[str]:
-    qs = st.experimental_get_query_params()
-    vals = qs.get(name, [])
-    if not vals:
-        return []
-    merged = []
-    for v in vals:
-        merged.extend([x.strip() for x in v.split(",") if x.strip()])
+    qs = st.query_params
+    if hasattr(qs, "get_all"):
+        raw_values = qs.get_all(name)
+    else:  # pragma: no cover - for older Streamlit fallbacks
+        raw = qs.get(name, [])
+        if isinstance(raw, str):
+            raw_values = [raw]
+        else:
+            raw_values = list(raw)
+
+    merged: List[str] = []
+    for value in raw_values:
+        if not value:
+            continue
+        merged.extend([piece.strip() for piece in value.split(",") if piece.strip()])
     return merged
 
 def _sync_qs_from_state(state: FilterState) -> None:
-    st.experimental_set_query_params(
-        models=state.models or None,
-        feature_groups=state.feature_groups or None,
-    )
+    # st.query_params는 mapping-like proxy
+    # 값이 비어있으면 키를 제거하고, 값이 존재하면 리스트로 설정한다.
+    qp = st.query_params
+    if state.models:
+        qp["models"] = state.models
+    elif "models" in qp:
+        del qp["models"]
+
+    if state.feature_groups:
+        qp["feature_groups"] = state.feature_groups
+    elif "feature_groups" in qp:
+        del qp["feature_groups"]
 
 # ---------------- 메인 앱 ---------------- #
 
@@ -74,16 +90,24 @@ def _render_sidebar(filter_state: FilterState) -> str:
     st.sidebar.divider()
     st.sidebar.subheader("공통 필터 (먼저 선택 권장)")
 
+    # 기본값 sanitize: URL에서 들어온 값이 데이터 옵션에 없을 때 multiselect 에러 방지
+    model_opts = distinct_values("model")
+    if hasattr(filter_state, "models"):
+        filter_state.models = [v for v in (filter_state.models or []) if v in model_opts]
+    fg_opts = distinct_values("feature_group")
+    if hasattr(filter_state, "feature_groups"):
+        filter_state.feature_groups = [v for v in (filter_state.feature_groups or []) if v in fg_opts]
+
     filter_state.models = st.sidebar.multiselect(
         "모델",
-        distinct_values("model"),
+        model_opts,
         default=filter_state.models,
         key="sidebar_models",
         placeholder="모델을 선택하세요",
     )
     filter_state.feature_groups = st.sidebar.multiselect(
         "FEATURE GROUP",
-        distinct_values("feature_group"),
+        fg_opts,
         default=filter_state.feature_groups,
         key="sidebar_feature_groups",
         placeholder="FEATURE GROUP을 선택하세요",

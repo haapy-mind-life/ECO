@@ -1,17 +1,32 @@
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     import pandas as pd  # type: ignore
-import streamlit as st
-from app.data.data_manager import DataManager
-from app.data.sample_features import distinct_values, FEATURE_GROUP_SCHEMA
-from app.views.state import FilterState
+
 import re
+
+import streamlit as st
+
+from app.data.data_manager import DataManager
+from app.data.sample_features import FEATURE_GROUP_SCHEMA, distinct_values
+from app.views.state import FilterState
+
+
+def _sanitize_default(default, options):
+    if default is None:
+        return []
+    if not isinstance(default, (list, tuple, set)):
+        default = [default]
+    opts = set(options or [])
+    return [v for v in default if v in opts]
 
 def _mccmnc_ok(s: str) -> bool:
     return bool(re.fullmatch(r"\d{3}-\d{2}", s.strip()))
 
 def _multiselect(label: str, options, default, key: str):
+    default = _sanitize_default(default, options)
     return st.multiselect(label, options, default=default, key=key, placeholder="검색하거나 값을 입력하세요")
 
 
