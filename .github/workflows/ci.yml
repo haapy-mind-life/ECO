@@ -3,14 +3,14 @@ on:
   pull_request:
     branches: [ main, develop ]
 jobs:
-  smoke:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install deps
+      - name: Install minimal deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
@@ -18,7 +18,7 @@ jobs:
         run: |
           python - << 'PY'
           import importlib
-          for m in ["streamlit","pandas","requests","pyarrow"]:
-              importlib.import_module(m)
+          for m in ["streamlit","pandas","pyarrow","requests"]:
+            importlib.import_module(m)
           print("OK")
           PY
