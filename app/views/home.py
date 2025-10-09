@@ -1,5 +1,7 @@
 from __future__ import annotations
-import pandas as pd
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import pandas as pd  # type: ignore
 import streamlit as st
 from app.data.data_manager import DataManager
 from app.data.sample_features import distinct_values, FEATURE_GROUP_SCHEMA
@@ -13,7 +15,7 @@ def _multiselect(label: str, options, default, key: str):
     return st.multiselect(label, options, default=default, key=key, placeholder="검색하거나 값을 입력하세요")
 
 
-def render_home(filter_state: FilterState, dataframe: pd.DataFrame):
+def render_home(filter_state: FilterState, dataframe: "pd.DataFrame"):
     st.title("📊 Feature Monitoring Home")
 
     # 마지막 DB 싱크 시각

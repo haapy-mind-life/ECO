@@ -2,5 +2,3 @@ streamlit>=1.33,<2.0
 pandas>=2.0,<3.0
 requests>=2.31
 pyarrow>=14.0
-# optional: 유사검색/추천이 필요하면 사용
-# rapidfuzz>=3.9
