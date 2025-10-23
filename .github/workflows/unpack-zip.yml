@@ -1,0 +1,46 @@
+name: Unpack ZIP into repo
+
+on:
+  push:
+    paths:
+      - 'upload/*.zip'   # upload/ 폴더에 ZIP 올릴 때만 동작
+
+permissions:
+  contents: write
+
+jobs:
+  unzip-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Stop if no zip
+        run: |
+          shopt -s nullglob
+          zips=(upload/*.zip)
+          if [ ${#zips[@]} -eq 0 ]; then
+            echo "No ZIPs found. Exiting."
+            exit 0
+          fi
+
+      - name: Unzip all ZIPs into repo root
+        run: |
+          sudo apt-get update && sudo apt-get install -y unzip rsync
+          mkdir -p tmp_unpack
+          for f in upload/*.zip; do
+            echo "Unzipping $f"
+            unzip -o "$f" -d tmp_unpack
+          done
+          # 압축을 풀어 repo 루트에 반영(동일 파일은 덮어쓰기)
+          rsync -a tmp_unpack/ ./
+
+      - name: Commit extracted files and remove ZIPs
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f upload/*.zip || true
+          git add -A
+          git commit -m "Unpack ZIP via action [skip ci]" || echo "Nothing to commit"
+          git push
