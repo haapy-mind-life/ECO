@@ -1,5 +1,0 @@
-[server]
-port = 8501
-enableXsrfProtection = true
-enableCORS = false
-# NOTE: Cloud는 baseUrlPath를 설정하지 않습니다 (health 404 방지)

@@ -1,5 +1,0 @@
-[server]
-port = 8501
-baseUrlPath = "/fmw"
-enableXsrfProtection = true
-enableCORS = false
