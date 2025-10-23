@@ -2,5 +2,7 @@ streamlit
 pandas
 requests
 pytz
-apscheduler
 python-dotenv
+# optional
+apscheduler
+xlsxwriter
