@@ -1,0 +1,32 @@
+name: Nuke repo (wipe all files)
+
+on:
+  workflow_dispatch:   # Actions 탭에서 수동 실행 가능
+  push:
+    paths:
+      - '.github/workflows/nuke.yml'   # 이 파일을 커밋하면 자동 실행
+
+permissions:
+  contents: write
+
+jobs:
+  wipe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove everything except .git
+        shell: bash
+        run: |
+          shopt -s extglob dotglob
+          rm -rf -- !(.git)
+
+      - name: Commit empty tree
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Wipe repository files" || echo "Nothing to commit"
+          git push
