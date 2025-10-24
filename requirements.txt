@@ -1,8 +1,4 @@
 streamlit
 pandas
 requests
-pytz
-python-dotenv
-# optional
-apscheduler
-xlsxwriter
+python-dateutil
