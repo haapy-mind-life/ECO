@@ -71,7 +71,7 @@ def make_identity(rec: Dict[str, str]) -> str:
         _norm(rec.get("country")),
         _norm(rec.get("operator")),
         _norm(rec.get("sp_fci")),
-        __norm(rec.get("value")),
+        _norm(rec.get("value")),
     ]
     basis = "|".join(parts)
     return hashlib.sha256(basis.encode("utf-8")).hexdigest()
